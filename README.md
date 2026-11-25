@@ -1,16 +1,17 @@
 # Draexl IT
 
-Cổng quản lý thiết bị IT với danh mục tài sản, hồ sơ nhân viên, phòng ban, nhập xuất kho, kiểm kê và nhật ký thao tác.
+Cổng quản lý thiết bị IT với danh mục tài sản, hồ sơ nhân viên, phòng ban, nhập xuất kho, kiểm kê và nhật ký thao tác. Phiếu bàn giao và thu hồi khi nghỉ việc có thể tải xuống dạng Word hoặc in và lưu PDF từ hộp thoại in.
 
 ## Chạy trên máy phát triển
 
-Cài Node.js 24 trở lên. Trong thư mục dự án, đặt mật khẩu thử nghiệm cho tài khoản quản trị và chạy bản xem trước.
+Cài Node.js 24 trở lên và pnpm. Trong thư mục dự án, đặt mật khẩu thử nghiệm cho tài khoản quản trị và chạy bản xem trước.
 
 PowerShell:
 
 ```powershell
 $env:ADMIN_PASSWORD = [guid]::NewGuid().ToString('N')
 Write-Host "Mật khẩu thử nghiệm: $env:ADMIN_PASSWORD"
+pnpm install --frozen-lockfile
 node build.mjs
 node preview.mjs
 ```
@@ -20,6 +21,7 @@ macOS hoặc Linux:
 ```sh
 export ADMIN_PASSWORD="$(node -p 'crypto.randomUUID()')"
 printf 'Mật khẩu thử nghiệm: %s\n' "$ADMIN_PASSWORD"
+pnpm install --frozen-lockfile
 node build.mjs
 node preview.mjs
 ```
@@ -51,5 +53,9 @@ Các thay đổi trong pull request được thử với dữ liệu giả lập
 3. Chạy **wrangler d1 migrations apply DB --remote** để tạo các bảng.
 4. Chạy **node build.mjs**, sau đó đặt mật khẩu khởi tạo qua **wrangler secret put ADMIN_PASSWORD**.
 5. Chạy **wrangler deploy** và mở địa chỉ Worker được in ra.
+
+### Chạy trực tiếp trên Cloudflare Pages
+
+Tạo dự án Pages dạng Direct Upload. Sau khi build, đưa `dist/server/index.js` vào thư mục xuất bản Pages dưới tên `_worker.js`. Trong cấu hình Wrangler dành cho Pages, đặt `pages_build_output_dir` thành thư mục xuất bản và khai báo D1 binding `DB` trỏ tới cơ sở dữ liệu đã chạy migrations. Đặt `ADMIN_PASSWORD` dưới dạng secret của dự án Pages. Chạy `wrangler pages deploy` bằng cấu hình Pages.
 
 Nếu dùng Cloudflare Pages làm địa chỉ chuyển tiếp, đặt biến môi trường **UPSTREAM_ORIGIN** thành địa chỉ HTTPS của Worker đã triển khai, rồi triển khai thư mục **hosting/cloudflare-pages** vào một dự án Pages. Tài khoản **admin** quản lý tài khoản và phân quyền trong mục **Tài khoản**.

@@ -328,9 +328,10 @@ async function saveDevice(db, space, user, body) {
   const department = assigned ? current.department : person ? person.department : await departmentName(db,space,body.department,true)
   const note = str(body.note,'Ghi chú',1000)
   const recorded = now()
+  const location = str(body.location,'Vị trí',120) || (receipt?'Kho IT':person?.department || '')
   const fields = [
     code,name,type,serial,person ? 'assigned' : stockStatus,department,
-    str(body.location,'Vị trí',120) || (receipt?'Kho IT':''),note,recorded,
+    location,note,recorded,
   ]
   try {
     if (id) {
@@ -349,9 +350,9 @@ async function saveDevice(db, space, user, body) {
       space,assetId,...fields,personId,personId,space,personId,person?.rev || 0,Number(nameOnly),space,name)]
     if (person) {
       const items = JSON.stringify([{id:assetId,rev:1,code,name,type,serial,condition:'assigned'}])
-      operations.push(stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created)
-        SELECT ?,?,'issue',?,?,?,?,?,?,?,0,? WHERE EXISTS(SELECT 1 FROM devices WHERE space=? AND id=?)`,
-        space,uid(),person.name,department,personId,localDate(),user.name,note,items,recorded,space,assetId))
+      operations.push(stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created,location)
+        SELECT ?,?,'issue',?,?,?,?,?,?,?,0,?,? WHERE EXISTS(SELECT 1 FROM devices WHERE space=? AND id=?)`,
+        space,uid(),person.name,department,personId,localDate(),user.name,note,items,recorded,location,space,assetId))
     }
     const [result] = await audited(db,space,user,'device',operations)
     if (!result.meta.changes) {
@@ -401,20 +402,20 @@ async function handover(db, space, user, body) {
       'Thiết bị ' + asset.code + ' không phù hợp với phiếu này.',409)
   }
   const nextStatus = issue ? 'assigned' : select(body.returnStatus || 'ready',['ready','stored','damaged'],'Tình trạng khi trả')
-  const location = str(body.location, 'Vị trí', 120) || (issue ? '' : 'Kho IT')
+  const location = str(body.location, 'Vị trí', 120) || (issue ? department : 'Kho IT')
   const snapshot = assets.map(asset => ({ id:asset.id,rev:asset.rev,code:asset.code,name:asset.name,type:asset.type,serial:asset.serial,condition:nextStatus }))
   const serialized = JSON.stringify(snapshot)
   const slip = uid()
   const timestamp = now()
   const operations = [
-    stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created)
-      SELECT ?,?,?,?,?,?,?,?,?,?,?,?
+    stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created,location)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?
       WHERE (SELECT COUNT(*) FROM devices d JOIN json_each(?) a ON a.value->>'id'=d.id
         WHERE d.space=? AND d.deleted=0 AND d.rev=a.value->>'rev')=?
       AND (?=1 OR ?='' OR EXISTS (SELECT 1 FROM people WHERE space=? AND id=? AND active=1 AND rev=?))
       AND (?=0 OR (SELECT COUNT(*) FROM devices WHERE space=? AND person_id=? AND deleted=0 AND status='assigned')=?)`,
       space,slip,kind,recipient,department,personId,when,user.name,str(body.note,'Ghi chú',1000),
-      serialized,Number(offboard),timestamp,serialized,space,ids.length,Number(newPerson),personId,
+      serialized,Number(offboard),timestamp,location,serialized,space,ids.length,Number(newPerson),personId,
       space,personId,person?.rev || 0,Number(offboard),space,personId,ids.length),
     stmt(db,`UPDATE devices SET status=?,department=?,person_id=?,location=?,updated=?,rev=rev+1
       WHERE space=? AND id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,

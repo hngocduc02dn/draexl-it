@@ -169,6 +169,8 @@ dialog::backdrop {background:#15172e70;backdrop-filter:blur(2px)}
 .form-grid input,.form-grid select,.form-grid textarea,.form-stack input {width:100%;font-weight:400}
 .form-grid textarea {resize:vertical;min-height:71px}
 .form-stack {display:grid;gap:13px}
+.employee-picker {display:grid;min-width:0;gap:7px}
+.form-grid .employee-picker .search {display:flex;align-items:center}
 .form-error {color:#a32745;background:#fff0f3;border-radius:7px;padding:7px 10px;margin:13px 0 0;font-size:.86rem}
 .dialog-feedback {color:#08634a;background:#e4f7ef;border-radius:7px;padding:8px 10px;margin:0 0 14px;font-size:.86rem}
 .dialog-intro {color:var(--muted);font-size:.9rem;margin-bottom:14px}
@@ -403,13 +405,26 @@ input[type=checkbox] {accent-color:var(--accent);width:16px;height:16px;flex:non
   html{scroll-behavior:auto} *,*::before,*::after{transition:none!important}
 }
 @media print {
+  @page {size:A4;margin:16mm}
   body{background:#fff;color:#000}
   #app,dialog,#toast{display:none!important}
-  #print-area{display:block;padding:18px;font:12pt "Segoe UI",sans-serif}
-  #print-area h1{text-align:center;margin:22px 0 14px;font-size:20pt}
+  #print-area{display:block;font:11pt "Segoe UI",sans-serif}
+  #print-area h1{text-align:center;margin:18px 0 5px;font-size:16pt;line-height:1.3}
   #print-area p{margin:6px 0}
-  #print-area img{width:100px;height:65px;object-fit:cover}
-  #print-area table{margin:15px 0;border:1px solid #999;white-space:normal}
-  #print-area td,#print-area th{border:1px solid #999;padding:7px}
-  .signatures{display:grid;grid-template-columns:1fr 1fr;text-align:center;margin-top:30px;font-weight:700}
+  .print-brand{display:flex;align-items:center;gap:12px}
+  .print-brand img{width:80px;height:52px;object-fit:cover}
+  .print-code{text-align:center}
+  .print-fields{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;margin:18px 0}
+  .print-fields div{min-width:0}
+  .print-fields dt{font-weight:700}
+  .print-fields dd{margin:2px 0 0;overflow-wrap:anywhere}
+  #print-area .table-scroll{overflow:visible}
+  #print-area table{display:table;width:100%;min-width:0;margin:15px 0;border-collapse:collapse;white-space:normal}
+  #print-area thead{display:table-header-group;position:static;clip:auto;width:auto;height:auto;overflow:visible}
+  #print-area tbody{display:table-row-group}
+  #print-area tr{display:table-row;break-inside:avoid}
+  #print-area td,#print-area th{display:table-cell;border:1px solid #999;padding:7px;color:#000;overflow-wrap:anywhere}
+  #print-area td::before,#print-area .mobile-field-label{display:none}
+  .print-note{white-space:pre-wrap;overflow-wrap:anywhere}
+  .signatures{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;margin-top:27px;padding-bottom:55px;font-weight:700;break-inside:avoid}
 }

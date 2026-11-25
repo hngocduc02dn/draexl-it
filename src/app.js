@@ -1,3 +1,5 @@
+import { downloadSlipWord } from './slip-word.js'
+
 const root = document.querySelector('#app')
 const dialog = document.querySelector('#dialog')
 const toast = document.querySelector('#toast')
@@ -414,12 +416,12 @@ function membership(active,isAccount=false) {
     (active?(isAccount?'Hoạt động':'Đang làm việc'):(isAccount?'Đã khóa':'Đã nghỉ việc'))+'</span>'
 }
 
-const slipLabel = slip => slip.offboard ? 'Thu hồi khi nghỉ việc' : slip.kind==='issue' ? 'Bàn giao thiết bị' : 'Thu hồi thiết bị'
+const slipLabel = slip => slip.offboard ? 'Thu hồi thiết bị khi nghỉ việc' : slip.kind==='issue' ? 'Bàn giao thiết bị' : 'Thu hồi thiết bị'
 const slipCode = slip => 'PB-' + slip.id.slice(0,8).toUpperCase()
 
 function slipsHtml() {
   return heading('Phiếu bàn giao','Theo dõi phiếu cấp phát, thu hồi và thiết bị của nhân viên nghỉ việc.',
-      canEdit()?dataButton('new-slip','Tạo phiếu','plus','primary'):'')+
+      canEdit()?dataButton('offboard','Tạo phiếu nghỉ việc','file')+dataButton('new-slip','Tạo phiếu','plus','primary'):'')+
     '<section class="panel table-panel"><div class="table-head"><h2>Lịch sử phiếu</h2></div><div class="filterbar">'+
     searchBox('slip-search','Tìm mã phiếu, người nhận, thiết bị…',slipQuery)+
     '<select id="slip-filter" aria-label="Loại phiếu">'+options([['issue','Bàn giao thiết bị'],['return','Thu hồi thiết bị'],['offboard','Nghỉ việc']],slipKind,'Loại phiếu')+
@@ -738,6 +740,38 @@ function dialogSuccess(message) {
   feedback.hidden = false
 }
 
+function locationField(value='', archive=false) {
+  const locations = [...new Set(['Kho IT',...departmentNames(),...(value?[value]:[])])]
+  return selectField('location','Vị trí thiết bị',locations,value,archive?'':'Chọn vị trí')
+}
+
+function employeePicker(label='Nhân viên',placeholder='Chọn nhân viên',required=false) {
+  return '<div class="employee-picker">'+searchBox('employee-search','Tìm họ tên, chức danh, phòng ban…','')+
+    selectField('personId',label,[],'',placeholder,required?'required':'')+
+    '<small class="muted" id="employee-matches" aria-live="polite" hidden></small></div>'
+}
+
+function bindEmployeePicker(id='') {
+  const search = dialog.querySelector('#employee-search')
+  const field = dialog.querySelector('[name="personId"]')
+  const matchesLabel = dialog.querySelector('#employee-matches')
+  const people = state.people.filter(person=>person.active)
+  const placeholder = field.options[0].textContent
+  function renderEmployees(selected) {
+    const matches = people.filter(p=>includes(search.value,p.name,p.department,p.position))
+    const visible = matches.slice(0,40)
+    const current = people.find(person=>person.id===selected)
+    if (current && !visible.includes(current)) visible.unshift(current)
+    field.innerHTML = options(visible.map(p=>[p.id,personLabel(p)]),selected,placeholder)
+    matchesLabel.textContent = !matches.length?'Không tìm thấy nhân viên phù hợp.':
+      matches.length>40?'Hiển thị 40 kết quả. Nhập thêm để thu hẹp.':''
+    matchesLabel.hidden = !matchesLabel.textContent
+  }
+  search.addEventListener('input',()=>renderEmployees(field.value))
+  search.addEventListener('keydown',event=>{if (event.key==='Enter') event.preventDefault()})
+  renderEmployees(id)
+}
+
 function deviceDetail(id) {
   const a = get('devices',id)
   if (!a) return
@@ -765,7 +799,6 @@ function deviceForm(id, receipt=false) {
   const assigned = a.status === 'assigned'
   const states = Object.entries(statuses).filter(([key])=>assigned?key==='assigned':key!=='assigned'&&(!receipt||key!=='destroyed'))
     .map(([key,[label]])=>[key,label])
-  const recipients = state.people.filter(p=>p.active).map(p=>[p.id,personLabel(p)])
   const form = (id?'':'<p class="dialog-intro">Điền tên, mã tài sản, serial hoặc chọn loại thiết bị. Mã tài sản được tạo tự động nếu để trống.</p>')+
     '<div class="form-grid">'+input('code','Mã tài sản',a.code,'maxlength="50"')+
     input('name','Tên thiết bị',a.name,'maxlength="120"')+
@@ -773,8 +806,8 @@ function deviceForm(id, receipt=false) {
     input('serial','Số serial',a.serial,'maxlength="80"')+
     selectField('status','Trạng thái',states,a.status||(receipt?'stored':'ready'),'',assigned?'disabled':'')+
     selectField('department','Phòng ban',departmentNames(),a.department,'Không chỉ định',assigned?'disabled':'')+
-    (id||receipt?'':selectField('personId','Gắn với nhân viên',recipients,'','Chưa cấp phát'))+
-    input('location','Vị trí',a.location||(receipt?'Kho IT':''),'maxlength="120"','span')+noteField(a.note)+'</div>'
+    (id||receipt?'':'<div class="span">'+employeePicker('Gắn với nhân viên','Chưa cấp phát')+'</div>')+
+    '<div class="span">'+locationField(a.location||(receipt?'Kho IT':''),receipt)+'</div>'+noteField(a.note)+'</div>'
   open(id?'Sửa thiết bị':receipt?'Nhập thiết bị mới':'Thêm thiết bị',form,cancel()+submitButton(receipt?'Lưu nhập kho':'Lưu thiết bị'),async values=>{
     const result = await api('devices',{...values,id:a.id,rev:a.rev,receipt})
     const message = id?'Đã cập nhật thiết bị.':receipt?'Đã nhập thiết bị vào kho.':
@@ -786,6 +819,7 @@ function deviceForm(id, receipt=false) {
     }
   })
   if (!id && !receipt) {
+    bindEmployeePicker()
     const fields = dialog.querySelector('form').elements
     let stockStatus = fields.status.value
     let stockDepartment = fields.department.value
@@ -884,64 +918,79 @@ function personForm(id, department='') {
 
 function handoverForm(preset={}) {
   const a = get('devices',preset.assetId)
-  const firstKind = preset.kind || 'issue'
+  const firstKind = preset.offboard ? 'offboard' : preset.kind || 'issue'
   const personId = preset.personId || a?.person_id || ''
   const firstTarget = firstKind==='return' && a && !personId ? 'department' : 'person'
   let selected = new Set(preset.assetId?[preset.assetId]:[])
   const body = '<div class="form-grid">'+
-    selectField('kind','Loại phiếu',[['issue','Bàn giao / cấp phát'],['return','Thu hồi / trả kho']],firstKind)+
+    selectField('kind','Loại phiếu',[['issue','Bàn giao / cấp phát'],['return','Thu hồi / trả kho'],['offboard','Thu hồi khi nghỉ việc']],firstKind)+
     input('date','Ngày thực hiện',today(),'type="date"')+
     selectField('target','Đối tượng',[],firstTarget)+
     '<div id="target-input"></div><div class="span form-block" id="new-person-fields" hidden></div>'+
-    '<div class="span" id="offboard-wrap" hidden><label class="check-line"><span><input name="offboard" type="checkbox" '+(preset.offboard?'checked':'')+
-    '> Chốt nghỉ việc và thu hồi toàn bộ thiết bị</span></label></div>'+
+    '<p class="span dialog-intro" id="offboard-help" hidden>Phiếu tự chọn toàn bộ thiết bị nhân viên đang giữ. Khi lưu, hồ sơ chuyển sang Đã nghỉ việc và thiết bị được nhập lại kho.</p>'+
     '<div id="return-condition" hidden>'+selectField('returnStatus','Tình trạng khi trả',
       [['ready','Sẵn sàng cấp phát'],['stored','Lưu giữ'],['damaged','Hư hại']],'ready')+'</div>'+
-    input('location','Vị trí thiết bị',firstKind==='return'?'Kho IT':'','maxlength="120"')+
+    locationField(firstKind==='issue'?'':'Kho IT')+
     '<div class="span"><div class="pick-title"><span>Thiết bị</span><span class="count" id="picked-count"></span></div>'+
     searchBox('pick-search','Tìm tài sản trong danh sách…','')+'<div class="pick-list" id="pick-list"></div></div>'+
     noteField()+'</div>'
-  open('Tạo phiếu bàn giao',body,cancel()+submitButton('Lưu phiếu'),async values=>{
+  const slipTitle = {issue:'Tạo phiếu bàn giao',return:'Tạo phiếu thu hồi',offboard:'Tạo phiếu thu hồi khi nghỉ việc'}
+  open(slipTitle[firstKind],body,cancel()+submitButton('Lưu phiếu'),async values=>{
+    const offboard = values.kind==='offboard'
     const payload = {
-      kind:values.kind,target:values.target,date:values.date,personId:values.personId,
+      kind:values.kind==='issue'?'issue':'return',target:offboard?'person':values.target,date:values.date,personId:values.personId,
       department:values.department,returnStatus:values.returnStatus,location:values.location,
-      offboard:values.kind==='return'&&values.target==='person'&&values.offboard==='on',
+      offboard,
       ids:[...selected],note:values.note,person:{name:values.name,dob:values.dob,position:values.position,department:values.newDepartment},
     }
     const result = await api('slips',payload)
-    const message = values.kind==='return'?'Đã lưu phiếu thu hồi và đưa thiết bị về kho.':'Đã lưu phiếu cấp phát và cập nhật người nhận.'
+    const message = offboard?'Đã lưu phiếu thu hồi và cập nhật hồ sơ nghỉ việc.':
+      values.kind==='return'?'Đã lưu phiếu thu hồi và đưa thiết bị về kho.':'Đã lưu phiếu cấp phát và cập nhật người nhận.'
     await saved(message)
     slipDetail(result.id)
     dialogSuccess(message)
   },true)
   const form = dialog.querySelector('form')
   const fields = form.elements
-  const personList = state.people.filter(p=>p.active).map(p=>[p.id,personLabel(p)])
   const targetInput = dialog.querySelector('#target-input')
   const newFields = dialog.querySelector('#new-person-fields')
   newFields.innerHTML = '<div class="form-grid">'+personFields().replace('name="department"','name="newDepartment"')+'</div>'
-  const offboardWrap = dialog.querySelector('#offboard-wrap')
+  const offboardHelp = dialog.querySelector('#offboard-help')
   const returnCondition = dialog.querySelector('#return-condition')
   const list = dialog.querySelector('#pick-list')
   const pickSearch = dialog.querySelector('#pick-search')
   const targets = [['person','Nhân viên'],['department','Phòng ban']]
   let candidates = []
+  let locationChanged = false
   function updateMode(target, id='', dept='') {
     const issue = fields.kind.value==='issue'
-    fields.target.innerHTML = options(issue?[...targets,['new','Nhân viên mới']]:targets,target)
+    const offboard = fields.kind.value==='offboard'
+    const choices = offboard?targets.slice(0,1):issue?[...targets,['new','Nhân viên mới']]:targets
+    fields.target.innerHTML = options(choices,target)
+    fields.target.disabled = offboard
+    dialog.querySelector('#dialog-title').textContent = slipTitle[fields.kind.value]
     const mode = fields.target.value
-    targetInput.innerHTML = mode==='person' ? selectField('personId','Nhân viên',personList,id,'Chọn nhân viên','required') :
+    targetInput.innerHTML = mode==='person' ? employeePicker('Nhân viên','Chọn nhân viên',true) :
       mode==='department' ? selectField('department','Phòng ban',departmentNames(),dept,'Chọn phòng ban','required') : ''
+    if (mode==='person') bindEmployeePicker(id)
     newFields.hidden = mode!=='new'
     for (const control of newFields.querySelectorAll('input,select')) control.disabled = newFields.hidden
-    offboardWrap.hidden = issue || mode!=='person'
-    if (offboardWrap.hidden) fields.offboard.checked = false
+    offboardHelp.hidden = !offboard
     returnCondition.hidden = issue
+    suggestLocation()
     updateCandidates()
+  }
+  function suggestLocation() {
+    if (locationChanged) return
+    fields.location.value = fields.kind.value==='issue'
+      ? fields.department?.value || get('people',fields.personId?.value)?.department ||
+        (fields.target.value==='new' ? fields.newDepartment.value : '')
+      : 'Kho IT'
+    if (fields.location.selectedIndex<0) fields.location.value = ''
   }
   function updateCandidates() {
     const issue = fields.kind.value==='issue'
-    const offboard = !offboardWrap.hidden && fields.offboard.checked
+    const offboard = fields.kind.value==='offboard'
     const department = fields.department?.value
     const person = fields.personId?.value
     candidates = state.devices.filter(asset=>issue ? ['ready','stored'].includes(asset.status) :
@@ -954,22 +1003,25 @@ function handoverForm(preset={}) {
   function renderPick() {
     const query = pickSearch.value
     const visible = candidates.filter(asset=>includes(query,asset.code,asset.name,asset.type,asset.serial))
-    const offboard = !offboardWrap.hidden && fields.offboard.checked
+    const offboard = fields.kind.value==='offboard'
     dialog.querySelector('#picked-count').textContent = selected.size+' đã chọn'
     list.innerHTML = visible.length ? visible.map(asset=>'<label class="pick-row"><input type="checkbox" data-pick="'+escape(asset.id)+
       '" '+(selected.has(asset.id)?'checked':'')+' '+(offboard?'disabled':'')+'><span>'+escape(asset.code)+' · '+
       escape(asset.name)+'</span><small>'+escape(asset.type)+'</small></label>').join('') :
-      '<div class="empty"><p>'+(offboard?'Nhân viên không còn thiết bị để thu hồi.':'Không có thiết bị phù hợp.')+'</p></div>'
+      '<div class="empty"><p>'+(offboard?(fields.personId.value?'Nhân viên không còn thiết bị để thu hồi.':'Chọn nhân viên để xem thiết bị.'):'Không có thiết bị phù hợp.')+'</p></div>'
   }
   form.addEventListener('change',event=>{
     const control = event.target
     if (control.name==='kind') {
-      fields.location.value = fields.kind.value==='return'?'Kho IT':''
-      updateMode(fields.target.value)
+      locationChanged = false
+      updateMode(fields.target.value,fields.personId?.value,fields.department?.value)
     } else if (control.name==='target') {
       updateMode(fields.target.value)
-    } else if (['personId','department','offboard'].includes(control.name)) {
+    } else if (['personId','department','newDepartment'].includes(control.name)) {
+      suggestLocation()
       updateCandidates()
+    } else if (control.name==='location') {
+      locationChanged = true
     } else if (control.dataset.pick) {
       if (control.checked) selected.add(control.dataset.pick)
       else selected.delete(control.dataset.pick)
@@ -982,30 +1034,58 @@ function handoverForm(preset={}) {
 
 function slipItems(items) {
   return items.length ? table(['Mã tài sản','Thiết bị','Serial','Tình trạng'],items.map(a=>'<tr><td>'+escape(a.code)+
-    '</td><td>'+escape(a.name)+'</td><td>'+escape(a.serial||'—')+'</td><td>'+escape(statuses[a.condition][0])+'</td></tr>').join('')) :
+    '</td><td>'+escape(a.name)+'</td><td>'+escape(a.serial||'—')+'</td><td>'+escape(statuses[a.condition]?.[0] || '—')+'</td></tr>').join('')) :
     '<p class="muted">Không có thiết bị phải thu hồi.</p>'
+}
+
+function slipDocument(slip) {
+  const issue = slip.kind==='issue'
+  const recipient = slip.recipient || '—'
+  const labels = issue ? ['Bên giao','Bên nhận','Người quản lý'] : ['Người trả','Bộ phận IT nhận','Người quản lý']
+  return {
+    title:'BIÊN BẢN '+slipLabel(slip).toUpperCase(),
+    code:slipCode(slip),
+    fields:[
+      ['Ngày thực hiện',displayDate(slip.event_date)],
+      [labels[0],issue?'Bộ phận IT':recipient],
+      [labels[1],issue?recipient:'Bộ phận IT'],
+      ['Phòng ban',slip.department || '—'],
+      ['Vị trí thiết bị',slip.location || '—'],
+      ['Người lập phiếu',slip.creator || '—'],
+    ],
+    columns:['STT','Mã tài sản','Tên thiết bị','Serial','Tình trạng'],
+    items:slip.items.map((asset,index)=>[String(index+1),asset.code,asset.name,asset.serial || '—',statuses[asset.condition]?.[0] || '—']),
+    note:slip.note || '—',
+    signatures:labels,
+  }
 }
 
 function slipDetail(id) {
   const s = get('slips',id)
   if (!s) return
   const text = '<div class="detail-title">'+badgeIcon('file')+'<div><h3>'+slipLabel(s)+'</h3><p>'+slipCode(s)+'</p></div></div>'+
-    details([['Người nhận / Đơn vị',s.recipient],['Phòng ban',s.department],['Ngày thực hiện',displayDate(s.event_date)],
-      ['Người lập phiếu',s.creator],['Ghi chú',s.note,true]])+
+    details([...slipDocument(s).fields,['Ghi chú',s.note,true]])+
     '<div class="history"><h3>Danh sách thiết bị ('+s.items.length+')</h3>'+slipItems(s.items)+'</div>'
-  open('Chi tiết phiếu',text,dataButton('close','Đóng')+dataButton('print-slip','In / Lưu PDF','printer','primary',id),null,true)
+  open('Chi tiết phiếu',text,dataButton('close','Đóng')+dataButton('word-slip','Tải Word','file','',id)+
+    dataButton('print-slip','In / Lưu PDF','printer','primary',id),null,true)
 }
 
 function printSlip(id) {
   const s = get('slips',id)
   if (!s) return
-  document.querySelector('#print-area').innerHTML = '<img src="/logo.png" alt="DRÄXLMAIER"><strong>DRÄXLMAIER Việt Nam</strong>'+
-    '<h1>'+slipLabel(s).toUpperCase()+'</h1><p><strong>Mã phiếu</strong> '+slipCode(s)+
-    '</p><p><strong>Ngày thực hiện</strong> '+displayDate(s.event_date)+'</p><p><strong>Người nhận / Đơn vị</strong> '+
-    escape(s.recipient)+'</p><p><strong>Phòng ban</strong> '+escape(s.department)+'</p><p><strong>Người lập</strong> '+
-    escape(s.creator)+'</p>'+slipItems(s.items)+'<p><strong>Ghi chú</strong> '+escape(s.note||'—')+
-    '</p><div class="signatures"><p>Bộ phận IT<br><small>Ký và ghi rõ họ tên</small></p>'+
-    '<p>Nhân viên / Đại diện phòng ban<br><small>Ký và ghi rõ họ tên</small></p></div>'
+  const doc = slipDocument(s)
+  const items = doc.items.length ? table(doc.columns,doc.items.map(item=>'<tr>'+
+    item.map(value=>'<td>'+escape(value)+'</td>').join('')+'</tr>').join('')) :
+    '<p>Không có thiết bị phải thu hồi.</p>'
+  document.querySelector('#print-area').innerHTML =
+    '<div class="print-brand"><img src="/logo.png" alt=""><strong>DRÄXLMAIER Việt Nam</strong></div>'+
+    '<h1>'+escape(doc.title)+'</h1><p class="print-code">Mã phiếu '+escape(doc.code)+'</p>'+
+    '<dl class="print-fields">'+doc.fields.map(([label,value])=>'<div><dt>'+escape(label)+'</dt><dd>'+
+      escape(value)+'</dd></div>').join('')+'</dl>'+items+
+    '<p><strong>Tổng số thiết bị</strong> '+number(doc.items.length)+'</p>'+
+    '<p class="print-note"><strong>Ghi chú</strong> '+escape(doc.note)+'</p>'+
+    '<div class="signatures">'+doc.signatures.map(label=>'<p>'+escape(label)+
+      '<br><small>Ký và ghi rõ họ tên</small></p>').join('')+'</div>'
   window.print()
 }
 
@@ -1149,6 +1229,14 @@ async function handleAction(action,value,element) {
   if (action==='person-detail') personDetail(value)
   if (action==='slip-detail') slipDetail(value)
   if (action==='print-slip') printSlip(value)
+  if (action==='word-slip') {
+    const slip = get('slips',value)
+    if (slip) {
+      element.disabled = true
+      try { await downloadSlipWord(slipDocument(slip)) }
+      finally { element.disabled = false }
+    }
+  }
   if (!canEdit()) return
   if (action==='new-device' || action==='edit-device') deviceForm(value)
   if (action==='receive-device') deviceForm('',true)
