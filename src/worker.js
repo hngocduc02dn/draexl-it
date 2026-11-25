@@ -213,7 +213,7 @@ async function seedDemo(db) {
 }
 
 async function inventory(db, space, user) {
-  const peopleFields = user.role === 'it' ? '*' : 'id,name,position,department,active'
+  const peopleFields = user.role === 'it' ? '*' : 'id,name,position,department,active,employee_code'
   const queries = [
     stmt(db, 'SELECT * FROM devices WHERE space=? AND deleted=0 ORDER BY code', space),
     stmt(db, 'SELECT ' + peopleFields + ' FROM people WHERE space=? ORDER BY name', space),
@@ -229,7 +229,8 @@ async function personFields(db, space, body) {
   const dob = date(body.dob, 'Ngày sinh', true)
   if (dob) must(dob <= localDate(), 'Ngày sinh không thể ở tương lai.')
   return [str(body.name,'Họ và tên',120,true), dob,
-    str(body.position,'Chức danh'),await departmentName(db,space,body.department,true)]
+    str(body.position,'Chức danh'),await departmentName(db,space,body.department,true),
+    str(body.employeeCode,'Mã nhân viên',40)]
 }
 
 function conflict(result) {
@@ -255,14 +256,14 @@ async function savePerson(db, space, user, body) {
     }
     const personId = uid()
     await audited(db,space,user,'person',[
-      stmt(db,'INSERT INTO people(space,id,name,dob,position,department) VALUES (?,?,?,?,?,?)',
+      stmt(db,'INSERT INTO people(space,id,name,dob,position,department,employee_code) VALUES (?,?,?,?,?,?,?)',
         space,personId,...await personFields(db,space,body)),
     ])
     return respond({ok:true,id:personId},201)
   }
   const fields = await personFields(db,space,body)
   const [result] = await audited(db,space,user,'person',[
-    stmt(db,`UPDATE people SET name=?,dob=?,position=?,department=?,rev=rev+1
+    stmt(db,`UPDATE people SET name=?,dob=?,position=?,department=?,employee_code=COALESCE(NULLIF(?,''),employee_code),rev=rev+1
       WHERE space=? AND id=? AND rev=?`,...fields,space,id,revision(body.rev)),
     stmt(db,`UPDATE devices SET department=?,rev=rev+1,updated=?
       WHERE space=? AND person_id=? AND deleted=0 AND status='assigned' AND changes()>0`,
@@ -382,8 +383,8 @@ async function handover(db, space, user, body) {
   const personId = newPerson ? uid() : personTarget ? str(body.personId,'Nhân viên',60,true) : ''
   let person = null
   if (newPerson) {
-    const [name,dob,position,department] = await personFields(db,space,body.person || {})
-    person = {name,dob,position,department}
+    const [name,dob,position,department,employeeCode] = await personFields(db,space,body.person || {})
+    person = {name,dob,position,department,employeeCode}
   } else if (personId) {
     person = await stmt(db,'SELECT * FROM people WHERE space=? AND id=?',space,personId).first()
   }
@@ -422,9 +423,9 @@ async function handover(db, space, user, body) {
       nextStatus,issue ? department : '',issue ? personId : '',location,timestamp,
       space,JSON.stringify(ids),space,slip),
   ]
-  if (newPerson) operations.push(stmt(db,`INSERT INTO people(space,id,name,dob,position,department)
-    SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,
-    space,personId,person.name,person.dob,person.position,department,space,slip))
+  if (newPerson) operations.push(stmt(db,`INSERT INTO people(space,id,name,dob,position,department,employee_code)
+    SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,
+    space,personId,person.name,person.dob,person.position,department,person.employeeCode,space,slip))
   if (offboard) operations.push(stmt(db,`UPDATE people SET active=0,rev=rev+1 WHERE space=? AND id=?
     AND EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,space,personId,space,slip))
   const [result] = await audited(db,space,user,'handover',operations)
@@ -753,6 +754,9 @@ export default {
       }})
     } catch (error) {
       if (error instanceof HttpError) return respond({error:error.message},error.status)
+      if (/UNIQUE constraint failed: people\.space, people\.employee_code/i.test(error.message)) {
+        return respond({error:'Mã nhân viên này đã được sử dụng trong kho này.'},409)
+      }
       if (/department_unavailable/i.test(error.message)) return respond({error:'Phòng ban vừa được đổi hoặc xóa. Hãy tải lại rồi chọn phòng ban.'},409)
       if (/D1_ERROR|D1_EXEC_ERROR/i.test(error.message) && /overload|timeout|timed out|unavailable/i.test(error.message)) {
         return respond({error:'Kho dữ liệu đang bận. Chờ một lúc rồi tải lại để kiểm tra trước khi thử lại.'},503)

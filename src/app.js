@@ -78,7 +78,8 @@ const initials = name => escape(name.trim().split(/\s+/).slice(-2).map(word=>wor
 const norm = text => String(text ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu,'').replace(/đ/g,'d')
 const includes = (query, ...parts) => norm(parts.join(' ')).includes(norm(query.trim()))
 const peopleById = () => new Map(state.people.map(person=>[person.id,person]))
-const personLabel = person => person.name + (person.department ? ' · ' + person.department : '')
+const personLabel = person => [person.name,person.employee_code,person.department].filter(Boolean).join(' · ')
+const matchesPerson = (query,person) => includes(query,person.name,person.employee_code,person.position,person.department)
 const departmentNames = () => state.departments.map(department=>department.name)
 const get = (name,id) => state[name].find(row=>row.id===id)
 const canEdit = () => user?.role === 'it'
@@ -334,7 +335,7 @@ function renderDevices() {
     const person = people.get(a.person_id)
     return '<tr class="clickable" data-action="device-detail" data-value="'+id+'"><td><div class="device-cell">'+
       badgeIcon(typeIcons[types.indexOf(a.type)])+'<div><button class="link device-name" data-action="device-detail" data-value="'+id+'">'+
-      escape(a.name)+'</button><small>'+escape(a.code)+(a.serial?' · '+escape(a.serial):'')+'</small></div></div></td>'+
+      escape(a.name)+'</button><small>Mã tài sản '+escape(a.code)+' · Số serial '+escape(a.serial||'chưa có')+'</small></div></div></td>'+
       '<td>'+escape(a.type||'Chưa phân loại')+'</td><td>'+escape(a.department||'—')+'</td><td>'+status(a.status)+'</td>'+
       '<td>'+escape(person?.name||(group!==null?'Cấp chung cho phòng ban':a.location)||'—')+'</td><td>'+iconButton('device-detail','Xem '+a.code,'right',a.id)+'</td></tr>'
   }).join('')
@@ -354,14 +355,14 @@ function peopleHtml() {
 
 function peoplePanel() {
   return '<section class="panel table-panel"><div class="table-head"><h2>Danh sách nhân viên</h2></div>'+
-    '<div class="filterbar">'+searchBox('people-search','Tìm họ tên, chức danh, phòng ban…',peopleQuery)+'</div><div id="people-results"></div></section>'
+    '<div class="filterbar">'+searchBox('people-search','Tìm tên, mã nhân viên, phòng ban…',peopleQuery)+'</div><div id="people-results"></div></section>'
 }
 
 function renderPeople() {
   const container = document.querySelector('#people-results')
   if (!container) return
   const department = route==='departments' ? currentDepartment() : null
-  const list = state.people.filter(p=>(department===null||p.department===department)&&includes(peopleQuery,p.name,p.position,p.department))
+  const list = state.people.filter(p=>(department===null||p.department===department)&&matchesPerson(peopleQuery,p))
   if (!list.length) {
     container.innerHTML = empty('Không có nhân viên phù hợp','Hồ sơ nhân viên của kho này sẽ xuất hiện tại đây.','users')
     return
@@ -370,7 +371,8 @@ function renderPeople() {
   state.devices.filter(a=>a.status==='assigned'&&a.person_id).forEach(a=>counts.set(a.person_id,(counts.get(a.person_id)||0)+1))
   container.innerHTML = table(['Nhân viên','Chức danh','Phòng ban','Đang giữ','Trạng thái','Chi tiết'],list.map(p=>
     '<tr class="clickable" data-action="person-detail" data-value="'+escape(p.id)+'"><td><div class="device-cell"><span class="avatar">'+initials(p.name)+
-    '</span><button class="link device-name" data-action="person-detail" data-value="'+escape(p.id)+'">'+escape(p.name)+'</button></div></td>'+
+    '</span><div><button class="link device-name" data-action="person-detail" data-value="'+escape(p.id)+'">'+escape(p.name)+'</button>'+
+    '<small>Mã NV '+escape(p.employee_code||'—')+'</small></div></div></td>'+
     '<td>'+escape(p.position||'—')+'</td><td>'+escape(p.department||'—')+'</td><td>'+number(counts.get(p.id)||0)+'</td><td>'+
     membership(p.active)+'</td><td>'+iconButton('person-detail','Xem '+p.name,'right',p.id)+'</td></tr>').join(''))
 }
@@ -746,7 +748,7 @@ function locationField(value='', archive=false) {
 }
 
 function employeePicker(label='Nhân viên',placeholder='Chọn nhân viên',required=false) {
-  return '<div class="employee-picker">'+searchBox('employee-search','Tìm họ tên, chức danh, phòng ban…','')+
+  return '<div class="employee-picker">'+searchBox('employee-search','Tìm tên, mã nhân viên, phòng ban…','')+
     selectField('personId',label,[],'',placeholder,required?'required':'')+
     '<small class="muted" id="employee-matches" aria-live="polite" hidden></small></div>'
 }
@@ -758,7 +760,7 @@ function bindEmployeePicker(id='') {
   const people = state.people.filter(person=>person.active)
   const placeholder = field.options[0].textContent
   function renderEmployees(selected) {
-    const matches = people.filter(p=>includes(search.value,p.name,p.department,p.position))
+    const matches = people.filter(p=>matchesPerson(search.value,p))
     const visible = matches.slice(0,40)
     const current = people.find(person=>person.id===selected)
     if (current && !visible.includes(current)) visible.unshift(current)
@@ -778,8 +780,8 @@ function deviceDetail(id) {
   const p = get('people',a.person_id)
   const activity = state.slips.filter(s=>s.items.some(item=>item.id===id))
   const info = '<div class="detail-title">'+badgeIcon(typeIcons[types.indexOf(a.type)])+'<div><h3>'+escape(a.name)+'</h3><p>'+
-    escape(a.code)+' · '+escape(a.type||'Chưa phân loại')+'</p></div>'+status(a.status)+'</div>'+
-    details([['Số serial',a.serial],['Phòng ban',a.department],['Người sử dụng',p?.name],['Vị trí',a.location],
+    escape(a.type||'Chưa phân loại')+'</p></div>'+status(a.status)+'</div>'+
+    details([['Mã tài sản',a.code],['Số serial',a.serial||'Chưa có'],['Phòng ban',a.department],['Người sử dụng',p?.name],['Vị trí',a.location],
       ['Cập nhật',displayDate(a.updated)],['Ghi chú',a.note,true]])+
     '<section class="history"><h3>Lịch sử bàn giao</h3>'+
     (activity.length?activity.map(s=>viewLink('slip-detail',slipLabel(s)+' · '+slipCode(s),s.id,displayDate(s.event_date))).join(''):
@@ -841,6 +843,7 @@ function deviceForm(id, receipt=false) {
 
 function personFields(person={}) {
   return input('name','Họ và tên *',person.name,'required maxlength="120"')+
+    input('employeeCode','Mã nhân viên',person.employee_code,'maxlength="40" '+(person.id?'':'placeholder="Tự tạo nếu để trống"'))+
     input('dob','Ngày sinh',person.dob,'type="date" max="'+today()+'"')+
     input('position','Chức danh',person.position,'maxlength="120"')+
     selectField('department','Phòng ban',departmentNames(),person.department,'Chưa có phòng ban')
@@ -852,7 +855,7 @@ function personDetail(id) {
   const assigned = state.devices.filter(a=>a.person_id===id&&a.status==='assigned')
   const content = '<div class="detail-title"><span class="avatar">'+initials(p.name)+'</span><div><h3>'+escape(p.name)+'</h3><p>'+
     escape(p.position||p.department)+'</p></div>'+membership(p.active)+'</div>'+
-    details([['Phòng ban',p.department],...(canEdit()?[['Ngày sinh',displayDate(p.dob)]]:[])])+
+    details([['Mã nhân viên',p.employee_code],['Phòng ban',p.department],...(canEdit()?[['Ngày sinh',displayDate(p.dob)]]:[])])+
     '<section class="history"><h3>Thiết bị đang được cấp phát ('+assigned.length+')</h3>'+
     (assigned.length?assigned.map(a=>viewLink('device-detail',a.name,a.id,a.code)).join(''):
       '<p class="muted">Nhân viên hiện không giữ thiết bị nào.</p>')+'</section>'
@@ -941,7 +944,8 @@ function handoverForm(preset={}) {
       kind:values.kind==='issue'?'issue':'return',target:offboard?'person':values.target,date:values.date,personId:values.personId,
       department:values.department,returnStatus:values.returnStatus,location:values.location,
       offboard,
-      ids:[...selected],note:values.note,person:{name:values.name,dob:values.dob,position:values.position,department:values.newDepartment},
+      ids:[...selected],note:values.note,person:{name:values.name,employeeCode:values.employeeCode,
+        dob:values.dob,position:values.position,department:values.newDepartment},
     }
     const result = await api('slips',payload)
     const message = offboard?'Đã lưu phiếu thu hồi và cập nhật hồ sơ nghỉ việc.':

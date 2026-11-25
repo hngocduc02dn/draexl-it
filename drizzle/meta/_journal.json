@@ -29,6 +29,13 @@
       "when": 1795615200000,
       "tag": "0003_slip_location",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1795622400000,
+      "tag": "0004_employee_code",
+      "breakpoints": true
     }
   ]
 }
