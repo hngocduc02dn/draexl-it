@@ -59,3 +59,7 @@ Các thay đổi trong pull request được thử với dữ liệu giả lập
 Tạo dự án Pages dạng Direct Upload. Sau khi build, đưa `dist/server/index.js` vào thư mục xuất bản Pages dưới tên `_worker.js`. Trong cấu hình Wrangler dành cho Pages, đặt `pages_build_output_dir` thành thư mục xuất bản và khai báo D1 binding `DB` trỏ tới cơ sở dữ liệu đã chạy migrations. Đặt `ADMIN_PASSWORD` dưới dạng secret của dự án Pages. Chạy `wrangler pages deploy` bằng cấu hình Pages.
 
 Nếu dùng Cloudflare Pages làm địa chỉ chuyển tiếp, đặt biến môi trường **UPSTREAM_ORIGIN** thành địa chỉ HTTPS của Worker đã triển khai, rồi triển khai thư mục **hosting/cloudflare-pages** vào một dự án Pages. Tài khoản **admin** quản lý tài khoản và phân quyền trong mục **Tài khoản**.
+
+### Mẫu phiếu công ty
+
+Sau khi chạy migrations, dùng `node company-template.mjs <mẫu.xlsx> <mẫu.sql>` để chuẩn bị mẫu một sheet của công ty. Nạp tệp SQL vào D1 với `wrangler d1 execute DB --remote --file <mẫu.sql>`. Giữ cả hai tệp ở nơi riêng tư. Mẫu được lưu trong D1 và ứng dụng cung cấp bản Excel, Word, PDF qua các chức năng dành cho tài khoản đã đăng nhập.

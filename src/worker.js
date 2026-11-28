@@ -219,10 +219,13 @@ async function inventory(db, space, user) {
     stmt(db, 'SELECT ' + peopleFields + ' FROM people WHERE space=? ORDER BY name', space),
     stmt(db, 'SELECT * FROM slips WHERE space=? ORDER BY created DESC', space),
     stmt(db, 'SELECT id,name,description,rev FROM departments WHERE space=? ORDER BY name', space),
+    stmt(db, "SELECT wording FROM slip_template WHERE id='company'"),
   ]
-  const [devices, people, slips, departments] = await db.batch(queries)
+  const [devices, people, slips, departments, template] = await db.batch(queries)
+  const wording = template.results[0]?.wording
   return { devices:devices.results, people:people.results, departments:departments.results,
-    slips:slips.results.map(s => ({...s, items:JSON.parse(s.items)})) }
+    hasCompanyTemplate:Boolean(wording),companyFormWording:wording ? JSON.parse(wording) : null,
+    slips:slips.results.map(({form_meta,...slip})=>({...slip,items:JSON.parse(slip.items),form:JSON.parse(form_meta || '{}')})) }
 }
 
 async function personFields(db, space, body) {
@@ -271,6 +274,34 @@ async function savePerson(db, space, user, body) {
   ])
   conflict(result)
   return respond({ok:true,id})
+}
+
+async function deletePerson(db, space, user, body) {
+  const id = str(body.id,'Nhân viên',60,true)
+  const [result] = await audited(db,space,user,'person',[
+    stmt(db,`DELETE FROM people WHERE space=? AND id=? AND rev=?
+      AND NOT EXISTS(SELECT 1 FROM devices WHERE space=? AND person_id=? AND deleted=0)`,
+      space,id,revision(body.rev),space,id),
+  ])
+  if (!result.meta.changes) {
+    const person = await stmt(db,`SELECT p.name,(SELECT COUNT(*) FROM devices d
+      WHERE d.space=p.space AND d.person_id=p.id AND d.deleted=0) AS linked
+      FROM people p WHERE p.space=? AND p.id=?`,space,id).first()
+    must(person,'Hồ sơ nhân viên này không còn tồn tại.',404)
+    must(!person.linked,'Nhân viên “'+person.name+'” còn '+person.linked+' thiết bị liên kết. Hãy thu hồi thiết bị trước khi xóa.',409)
+    conflict(result)
+  }
+  return respond({id})
+}
+
+function slipFormMeta(person, assets, user, input={}) {
+  return JSON.stringify({
+    employeeCode:person?.employee_code || '',
+    assetNo:str(input.assetNo,'Asset No.',50) || (assets.length===1 ? assets[0].code : ''),
+    costCentre:str(input.costCentre,'Cost Centre',50),
+    manager:str(input.manager,'Quản lý phòng ban',120),
+    itResponsible:str(input.itResponsible,'Người phụ trách IT',120) || user.name,
+  })
 }
 
 function assetLabel(asset) {
@@ -351,9 +382,10 @@ async function saveDevice(db, space, user, body) {
       space,assetId,...fields,personId,personId,space,personId,person?.rev || 0,Number(nameOnly),space,name)]
     if (person) {
       const items = JSON.stringify([{id:assetId,rev:1,code,name,type,serial,condition:'assigned'}])
-      operations.push(stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created,location)
-        SELECT ?,?,'issue',?,?,?,?,?,?,?,0,?,? WHERE EXISTS(SELECT 1 FROM devices WHERE space=? AND id=?)`,
-        space,uid(),person.name,department,personId,localDate(),user.name,note,items,recorded,location,space,assetId))
+      operations.push(stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created,location,form_meta)
+        SELECT ?,?,'issue',?,?,?,?,?,?,?,0,?,?,? WHERE EXISTS(SELECT 1 FROM devices WHERE space=? AND id=?)`,
+        space,uid(),person.name,department,personId,localDate(),user.name,note,items,recorded,location,
+        slipFormMeta(person,[{code}],user),space,assetId))
     }
     const [result] = await audited(db,space,user,'device',operations)
     if (!result.meta.changes) {
@@ -384,7 +416,7 @@ async function handover(db, space, user, body) {
   let person = null
   if (newPerson) {
     const [name,dob,position,department,employeeCode] = await personFields(db,space,body.person || {})
-    person = {name,dob,position,department,employeeCode}
+    person = {name,dob,position,department,employee_code:employeeCode || 'NV-'+personId.replaceAll('-','').slice(0,12).toUpperCase()}
   } else if (personId) {
     person = await stmt(db,'SELECT * FROM people WHERE space=? AND id=?',space,personId).first()
   }
@@ -409,14 +441,14 @@ async function handover(db, space, user, body) {
   const slip = uid()
   const timestamp = now()
   const operations = [
-    stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created,location)
-      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?
+    stmt(db,`INSERT INTO slips(space,id,kind,recipient,department,person_id,event_date,creator,note,items,offboard,created,location,form_meta)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?
       WHERE (SELECT COUNT(*) FROM devices d JOIN json_each(?) a ON a.value->>'id'=d.id
         WHERE d.space=? AND d.deleted=0 AND d.rev=a.value->>'rev')=?
       AND (?=1 OR ?='' OR EXISTS (SELECT 1 FROM people WHERE space=? AND id=? AND active=1 AND rev=?))
       AND (?=0 OR (SELECT COUNT(*) FROM devices WHERE space=? AND person_id=? AND deleted=0 AND status='assigned')=?)`,
       space,slip,kind,recipient,department,personId,when,user.name,str(body.note,'Ghi chú',1000),
-      serialized,Number(offboard),timestamp,location,serialized,space,ids.length,Number(newPerson),personId,
+      serialized,Number(offboard),timestamp,location,slipFormMeta(person,assets,user,body.form || {}),serialized,space,ids.length,Number(newPerson),personId,
       space,personId,person?.rev || 0,Number(offboard),space,personId,ids.length),
     stmt(db,`UPDATE devices SET status=?,department=?,person_id=?,location=?,updated=?,rev=rev+1
       WHERE space=? AND id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,
@@ -425,7 +457,7 @@ async function handover(db, space, user, body) {
   ]
   if (newPerson) operations.push(stmt(db,`INSERT INTO people(space,id,name,dob,position,department,employee_code)
     SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,
-    space,personId,person.name,person.dob,person.position,department,person.employeeCode,space,slip))
+    space,personId,person.name,person.dob,person.position,department,person.employee_code,space,slip))
   if (offboard) operations.push(stmt(db,`UPDATE people SET active=0,rev=rev+1 WHERE space=? AND id=?
     AND EXISTS(SELECT 1 FROM slips WHERE space=? AND id=?)`,space,personId,space,slip))
   const [result] = await audited(db,space,user,'handover',operations)
@@ -684,6 +716,14 @@ async function api(request, env, url) {
   }
   if (route === 'password' && post) return changePassword(db,env,user,body)
   const space = select(request.headers.get('X-Inventory-Workspace') || 'demo',['demo','live'],'Kho')
+  if (route === 'slip-template' && !post) {
+    const template = await stmt(db,"SELECT xlsx_base64 FROM slip_template WHERE id='company'").first()
+    must(template,'Mẫu Excel công ty chưa được cấu hình.',404)
+    return new Response(Uint8Array.from(atob(template.xlsx_base64),c=>c.charCodeAt(0)),{headers:{
+      'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',
+      'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }})
+  }
   if (route === 'state' && !post) {
     await ensureDepartments(db,space)
     if (space==='demo') await seedDemo(db)
@@ -709,7 +749,7 @@ async function api(request, env, url) {
     const action = select(body.action,['create','update'],'Thao tác kiểm kê')
     return action==='create' ? createCount(db,space,user,body) : updateCount(db,space,user,body)
   }
-  if (route === 'people' && post) return savePerson(db,space,user,body)
+  if (route === 'people' && post) return body.action==='delete' ? deletePerson(db,space,user,body) : savePerson(db,space,user,body)
   if (route === 'devices' && post) return saveDevice(db,space,user,body)
   if (route === 'slips' && post) return respond(await handover(db,space,user,body),201)
   if (route === 'delete-device' && post) {

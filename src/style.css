@@ -107,6 +107,7 @@ small,.muted {color:var(--muted)}
 .department-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:14px}
 .department-card {display:grid;gap:10px;padding:17px;transition:border-color .15s,background .15s}
 .department-card:hover {border-color:#bcb6ee;background:#faf9ff}
+.department-summary {display:grid;gap:10px;color:inherit;height:100%}
 .department-counts {display:flex;flex-wrap:wrap;gap:6px 13px;color:var(--muted);font-size:.84rem}
 .department-counts strong {color:var(--ink);font-size:.96rem}
 .department-description {color:var(--muted);font-size:.85rem;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -172,6 +173,7 @@ dialog::backdrop {background:#15172e70;backdrop-filter:blur(2px)}
 .employee-picker {display:grid;min-width:0;gap:7px}
 .form-grid .employee-picker .search {display:flex;align-items:center}
 .form-error {color:#a32745;background:#fff0f3;border-radius:7px;padding:7px 10px;margin:13px 0 0;font-size:.86rem}
+.dialog-body .form-error {margin:0 0 12px;scroll-margin-top:65px}
 .dialog-feedback {color:#08634a;background:#e4f7ef;border-radius:7px;padding:8px 10px;margin:0 0 14px;font-size:.86rem}
 .dialog-intro {color:var(--muted);font-size:.9rem;margin-bottom:14px}
 .detail-title {display:flex;align-items:center;gap:12px;margin-bottom:16px}
@@ -426,5 +428,9 @@ input[type=checkbox] {accent-color:var(--accent);width:16px;height:16px;flex:non
   #print-area td,#print-area th{display:table-cell;border:1px solid #999;padding:7px;color:#000;overflow-wrap:anywhere}
   #print-area td::before,#print-area .mobile-field-label{display:none}
   .print-note{white-space:pre-wrap;overflow-wrap:anywhere}
-  .signatures{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;margin-top:27px;padding-bottom:55px;font-weight:700;break-inside:avoid}
+  .print-signatures{margin-top:16px;break-inside:avoid}
+  .print-signatures h2{font-size:11pt;border-top:1px solid #999;padding-top:7px;margin-bottom:7px}
+  .signatures{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;gap:12px}
+  .signatures p{min-height:1.2em;overflow-wrap:anywhere}
+  .signature-space{height:34px;border-bottom:1px solid #999;margin:0 8px 5px}
 }

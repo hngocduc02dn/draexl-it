@@ -1,4 +1,5 @@
 import { downloadSlipWord } from './slip-word.js'
+import { downloadSlipExcel } from './slip-excel.js'
 
 const root = document.querySelector('#app')
 const dialog = document.querySelector('#dialog')
@@ -117,12 +118,17 @@ async function api(path, body, workspace=space) {
     if (response.status === 401 && user && path !== 'login') {
       returnToLogin('Phiên đăng nhập đã hết hạn.',true)
     }
-    throw new Error(result.error)
+    throw new Error(result.error || 'Máy chủ không xử lý được yêu cầu ('+response.status+').')
   }
   return result
 }
 
 function notice(message,kind='info') {
+  const feedback = dialog.open && dialog.querySelector(kind==='error'?'.form-error':'.dialog-feedback')
+  if (feedback) {
+    showFeedback(feedback,message)
+    return
+  }
   clearTimeout(noticeTimer)
   toast.textContent = message
   toast.dataset.kind = kind
@@ -207,7 +213,7 @@ function shell(content) {
   root.innerHTML = '<div class="shell"><aside class="sidebar" id="sidebar"><a class="brand" href="#overview">'+mark+
     '<div><div class="brand-name">Draexl IT</div><div class="brand-sub">DRÄXLMAIER VIỆT NAM</div></div></a>'+
     '<button type="button" class="icon-btn sidebar-close" aria-label="Đóng menu" data-action="menu-close">'+icon('close')+'</button>'+
-    '<nav class="nav" aria-label="Điều hướng chính"><div class="nav-label">QUẢN LÝ IT</div>'+nav+'</nav>'+
+    '<nav class="nav" aria-label="Điều hướng chính"><div class="nav-label">QUẢN LÝ TÀI SẢN IT</div>'+nav+'</nav>'+
     '<div class="sidebar-bottom"><button class="workspace-switch" data-action="workspace">'+icon('layers')+
     '<span><strong>'+name+'</strong><small>Chuyển kho</small></span><span class="chev">'+icon('down')+'</span></button>'+
     '<div class="side-user"><span class="avatar">'+initials(user.name)+'</span><div class="who"><strong>'+escape(user.name)+'</strong><small>'+
@@ -216,7 +222,7 @@ function shell(content) {
     '<button type="button" class="nav-backdrop" data-action="menu-close" aria-label="Đóng điều hướng" tabindex="-1"></button><main>'+
     '<header class="topbar"><button type="button" class="icon-btn mobile-menu" aria-label="Menu" aria-expanded="false" aria-controls="sidebar" data-action="menu">'+
     icon('menu')+'<span>Menu</span></button>'+
-    '<div class="crumb"><span class="crumb-root">Không gian IT</span><span class="crumb-sep">'+icon('right')+'</span><strong>'+pages[route][0]+'</strong></div>'+
+    '<div class="crumb"><span class="crumb-root">Tài sản IT</span><span class="crumb-sep">'+icon('right')+'</span><strong>'+pages[route][0]+'</strong></div>'+
     '<div class="top-right"><button type="button" title="'+(space==='demo'?'Dữ liệu giả lập để dùng thử':'Kho thiết bị nội bộ')+
     '" aria-label="Chuyển kho, '+name+'" data-action="workspace" class="space-tag '+space+'"><span class="dot"></span>'+name+'</button></div>'+
     '</header><section class="content">'+content+'</section></main></div>'
@@ -369,12 +375,14 @@ function renderPeople() {
   }
   const counts = new Map()
   state.devices.filter(a=>a.status==='assigned'&&a.person_id).forEach(a=>counts.set(a.person_id,(counts.get(a.person_id)||0)+1))
-  container.innerHTML = table(['Nhân viên','Chức danh','Phòng ban','Đang giữ','Trạng thái','Chi tiết'],list.map(p=>
+  container.innerHTML = table(['Nhân viên','Chức danh','Phòng ban','Đang giữ','Trạng thái',canEdit()?'Thao tác':'Chi tiết'],list.map(p=>
     '<tr class="clickable" data-action="person-detail" data-value="'+escape(p.id)+'"><td><div class="device-cell"><span class="avatar">'+initials(p.name)+
     '</span><div><button class="link device-name" data-action="person-detail" data-value="'+escape(p.id)+'">'+escape(p.name)+'</button>'+
     '<small>Mã NV '+escape(p.employee_code||'—')+'</small></div></div></td>'+
     '<td>'+escape(p.position||'—')+'</td><td>'+escape(p.department||'—')+'</td><td>'+number(counts.get(p.id)||0)+'</td><td>'+
-    membership(p.active)+'</td><td>'+iconButton('person-detail','Xem '+p.name,'right',p.id)+'</td></tr>').join(''))
+    membership(p.active)+'</td><td><div class="actions">'+iconButton('person-detail','Xem '+p.name,'right',p.id)+
+    (canEdit()?iconButton('edit-person','Sửa '+p.name,'pen',p.id)+iconButton('delete-person','Xóa '+p.name,'trash',p.id):'')+
+    '</div></td></tr>').join(''))
 }
 
 function departmentsHtml() {
@@ -405,11 +413,14 @@ function departmentsHtml() {
       canEdit()?dataButton('new-department','Thêm phòng ban','plus','primary'):'')+
     (cards.length?'<div class="department-grid">'+cards.map(department=>{
       const count = counts.get(department.name)
-      return '<a class="panel department-card" href="#departments/'+encodeURIComponent(department.id)+'">'+badgeIcon('building')+
+      return '<article class="panel department-card"><a class="department-summary" href="#departments/'+encodeURIComponent(department.id)+'">'+badgeIcon('building')+
         '<h2>'+escape(department.name||noDepartment)+'</h2>'+
         (department.description?'<p class="department-description">'+escape(department.description)+'</p>':'')+
         '<div class="department-counts"><span><strong>'+number(count.people)+
-        '</strong> Nhân viên</span><span><strong>'+number(count.devices)+'</strong> Thiết bị cấp phát</span></div></a>'
+        '</strong> Nhân viên</span><span><strong>'+number(count.devices)+'</strong> Thiết bị cấp phát</span></div></a>'+
+        (canEdit() && department.name?'<div class="actions">'+
+          dataButton('edit-department','Sửa','pen','compact',department.id)+
+          dataButton('delete-department','Xóa','trash','compact danger',department.id)+'</div>':'')+'</article>'
     }).join('')+'</div>':'<section class="panel">'+empty('Chưa có phòng ban','Phòng ban mới sẽ xuất hiện ở đây.','building')+'</section>')
 }
 
@@ -466,7 +477,7 @@ const countLabels = {found:'Đã thấy',missing:'Thiếu',review:'Cần kiểm 
 const countChoices = Object.entries(countLabels).filter(([key])=>key)
 const auditLabels = {
   'department.create':'Thêm phòng ban','department.update':'Sửa phòng ban','department.delete':'Xóa phòng ban',
-  'person.create':'Thêm nhân viên','person.update':'Sửa hồ sơ nhân viên','person.offboard':'Chốt nghỉ việc',
+  'person.create':'Thêm nhân viên','person.update':'Sửa hồ sơ nhân viên','person.offboard':'Chốt nghỉ việc','person.delete':'Xóa hồ sơ nhân viên',
   'device.create':'Thêm thiết bị','device.update':'Sửa thiết bị','device.delete':'Xóa thiết bị',
   'stock.receive':'Nhập thiết bị mới','stock.issue':'Xuất kho / cấp phát','stock.return':'Nhập kho / thu hồi',
   'count.create':'Tạo đợt kiểm kê','count.update':'Lưu tiến độ kiểm kê','count.close':'Chốt kiểm kê',
@@ -705,8 +716,8 @@ function open(title,body,foot='',submit=null,wide=false) {
   dialog.classList.toggle('wide',wide)
   dialog.innerHTML = '<div class="dialog-head"><h2 id="dialog-title">'+title+'</h2>'+
     iconButton('close','Đóng','close')+'</div>'+
-    (submit?'<form id="dialog-form">':'')+'<div class="dialog-body"><p class="dialog-feedback" role="status" hidden></p>'+body+
-    '<p class="form-error" role="alert" hidden></p></div>'+
+    (submit?'<form id="dialog-form">':'')+'<div class="dialog-body"><p class="dialog-feedback" role="status" hidden></p>'+
+    '<p class="form-error" role="alert" hidden></p>'+body+'</div>'+
     (foot?'<div class="dialog-foot">'+foot+'</div>':'')+(submit?'</form>':'')
   if (!dialog.open) dialog.showModal()
   dialog.scrollTop = 0
@@ -726,20 +737,26 @@ const viewLink = (action,label,value,aside='') => '<button type="button" data-ac
 
 async function saved(message) {
   dialog.close()
+  notice(message,'success')
   try {
     await refresh()
     render()
-    notice(message,'success')
   } catch {
     notice(message+' Chưa tải lại được danh sách. Hãy làm mới trang để xem bản ghi.', 'error')
   }
 }
 
+function showFeedback(box,message) {
+  box.textContent = message
+  box.hidden = false
+  if (dialog.contains(box)) box.scrollIntoView({block:'nearest'})
+}
+
 function dialogSuccess(message) {
   const feedback = dialog.querySelector('.dialog-feedback')
   if (!feedback || !dialog.open) return
-  feedback.textContent = message
-  feedback.hidden = false
+  dialog.querySelector('.form-error').hidden = true
+  showFeedback(feedback,message)
 }
 
 function locationField(value='', archive=false) {
@@ -861,11 +878,22 @@ function personDetail(id) {
       '<p class="muted">Nhân viên hiện không giữ thiết bị nào.</p>')+'</section>'
   let foot = dataButton('close','Đóng')
   if (canEdit()) {
-    foot += dataButton('edit-person','Sửa hồ sơ','pen','',p.id)
+    foot += dataButton('delete-person','Xóa hồ sơ','trash','danger',p.id)+dataButton('edit-person','Sửa hồ sơ','pen','',p.id)
     if (p.active) foot += dataButton('offboard','Thu hồi khi nghỉ việc','file','',p.id)+
       dataButton('issue-person','Cấp phát','hand','primary',p.id)
   }
   open('Chi tiết nhân viên',content,foot)
+}
+
+function deletePerson(id) {
+  const person = get('people',id)
+  if (!person) throw new Error('Hồ sơ nhân viên này không còn tồn tại.')
+  open('Xóa hồ sơ nhân viên','<p>Xóa vĩnh viễn hồ sơ của <strong>'+escape(person.name)+'</strong> và lịch sử thao tác gắn với hồ sơ này?</p>'+
+    '<p class="dialog-intro">Tên và mã nhân viên sẽ được gỡ khỏi phiếu liên quan. Các giao dịch thiết bị vẫn được lưu để đối chiếu kho.</p>',
+    cancel()+submitButton('Xác nhận xóa','danger'),async()=>{
+      await api('people',{action:'delete',id,rev:person.rev})
+      await saved('Đã xóa hồ sơ nhân viên.')
+    })
 }
 
 function personForm(id, department='') {
@@ -936,7 +964,11 @@ function handoverForm(preset={}) {
     locationField(firstKind==='issue'?'':'Kho IT')+
     '<div class="span"><div class="pick-title"><span>Thiết bị</span><span class="count" id="picked-count"></span></div>'+
     searchBox('pick-search','Tìm tài sản trong danh sách…','')+'<div class="pick-list" id="pick-list"></div></div>'+
-    noteField()+'</div>'
+    noteField()+'<details class="span attach-section"><summary>Thông tin trên mẫu công ty</summary>'+
+    '<div class="attach-body form-grid">'+input('assetNo','Asset No.','','maxlength="50" placeholder="Tự điền nếu có một thiết bị"')+
+    input('costCentre','Cost Centre','','maxlength="50"')+
+    input('manager','Quản lý phòng ban','','maxlength="120"')+
+    input('itResponsible','Người phụ trách IT',user.name,'maxlength="120"')+'</div></details></div>'
   const slipTitle = {issue:'Tạo phiếu bàn giao',return:'Tạo phiếu thu hồi',offboard:'Tạo phiếu thu hồi khi nghỉ việc'}
   open(slipTitle[firstKind],body,cancel()+submitButton('Lưu phiếu'),async values=>{
     const offboard = values.kind==='offboard'
@@ -944,7 +976,9 @@ function handoverForm(preset={}) {
       kind:values.kind==='issue'?'issue':'return',target:offboard?'person':values.target,date:values.date,personId:values.personId,
       department:values.department,returnStatus:values.returnStatus,location:values.location,
       offboard,
-      ids:[...selected],note:values.note,person:{name:values.name,employeeCode:values.employeeCode,
+      ids:[...selected],note:values.note,form:{assetNo:values.assetNo,costCentre:values.costCentre,
+        manager:values.manager,itResponsible:values.itResponsible},
+      person:{name:values.name,employeeCode:values.employeeCode,
         dob:values.dob,position:values.position,department:values.newDepartment},
     }
     const result = await api('slips',payload)
@@ -1043,24 +1077,34 @@ function slipItems(items) {
 }
 
 function slipDocument(slip) {
-  const issue = slip.kind==='issue'
-  const recipient = slip.recipient || '—'
-  const labels = issue ? ['Bên giao','Bên nhận','Người quản lý'] : ['Người trả','Bộ phận IT nhận','Người quản lý']
+  const isReturn = slip.kind==='return'
+  const employee = get('people',slip.person_id)
+  const recipient = slip.recipient || ''
+  const department = slip.department || ''
+  const employeeCode = slip.form?.employeeCode || employee?.employee_code || ''
+  const assetNo = slip.form?.assetNo || (slip.items.length===1?slip.items[0].code:'')
+  const costCentre = slip.form?.costCentre || ''
+  const date = displayDate(slip.event_date)
+  const condition = isReturn && slip.items.length ? statuses[slip.items[0].condition]?.[0] : ''
+  const note = [condition?'Tình trạng khi trả: '+condition:'',slip.note].filter(Boolean).join('\n')
   return {
-    title:'BIÊN BẢN '+slipLabel(slip).toUpperCase(),
-    code:slipCode(slip),
+    title:'IT Assets Handover/Return Form',code:slipCode(slip),
+    reference:state.companyFormWording?.reference || '',
+    acknowledgment:state.companyFormWording?.acknowledgment || '',
+    recipient,department,employeeCode,assetNo,costCentre,date,isReturn,note,
     fields:[
-      ['Ngày thực hiện',displayDate(slip.event_date)],
-      [labels[0],issue?'Bộ phận IT':recipient],
-      [labels[1],issue?recipient:'Bộ phận IT'],
-      ['Phòng ban',slip.department || '—'],
-      ['Vị trí thiết bị',slip.location || '—'],
-      ['Người lập phiếu',slip.creator || '—'],
+      ['Name / Họ tên',recipient],['Asset No.',assetNo],
+      ['Department / Phòng ban',department],['Cost Centre',costCentre],
+      ['Employee ID / Mã nhân viên',employeeCode],['Ngày thực hiện',date],
+      ['Vị trí thiết bị',slip.location],['Người lập phiếu',slip.creator],
     ],
-    columns:['STT','Mã tài sản','Tên thiết bị','Serial','Tình trạng'],
-    items:slip.items.map((asset,index)=>[String(index+1),asset.code,asset.name,asset.serial || '—',statuses[asset.condition]?.[0] || '—']),
-    note:slip.note || '—',
-    signatures:labels,
+    columns:['Description of Equipments','Model Descriptions','IT Asset Tag','Serial No.','Quantity'],
+    items:slip.items.map(asset=>[asset.type || asset.name,asset.type ? asset.name : '',asset.code,asset.serial || '',1]),
+    signatures:[
+      {label:'Employee Signature',name:slip.person_id?recipient:''},
+      {label:'Department Manager',name:slip.form?.manager || ''},
+      {label:'IT Responsible',name:slip.form?.itResponsible || slip.creator || ''},
+    ],
   }
 }
 
@@ -1071,6 +1115,7 @@ function slipDetail(id) {
     details([...slipDocument(s).fields,['Ghi chú',s.note,true]])+
     '<div class="history"><h3>Danh sách thiết bị ('+s.items.length+')</h3>'+slipItems(s.items)+'</div>'
   open('Chi tiết phiếu',text,dataButton('close','Đóng')+dataButton('word-slip','Tải Word','file','',id)+
+    (state.hasCompanyTemplate?dataButton('excel-slip','Tải Excel','file','',id):'')+
     dataButton('print-slip','In / Lưu PDF','printer','primary',id),null,true)
 }
 
@@ -1081,15 +1126,20 @@ function printSlip(id) {
   const items = doc.items.length ? table(doc.columns,doc.items.map(item=>'<tr>'+
     item.map(value=>'<td>'+escape(value)+'</td>').join('')+'</tr>').join('')) :
     '<p>Không có thiết bị phải thu hồi.</p>'
+  const signatures = (title,active) => '<section class="print-signatures"><h2>'+title+'</h2><div class="signatures">'+
+    doc.signatures.map(({label,name})=>'<div><strong>'+escape(label)+'</strong><p>'+escape(active?name:'')+'</p>'+
+      '<div class="signature-space"></div><small>Date: '+escape(active?doc.date:'')+'</small></div>').join('')+
+    '</div></section>'
   document.querySelector('#print-area').innerHTML =
     '<div class="print-brand"><img src="/logo.png" alt=""><strong>DRÄXLMAIER Việt Nam</strong></div>'+
-    '<h1>'+escape(doc.title)+'</h1><p class="print-code">Mã phiếu '+escape(doc.code)+'</p>'+
+    '<h1>'+escape(doc.title)+'</h1><p class="print-code">'+escape([doc.reference,doc.code,slipLabel(s)].filter(Boolean).join(' · '))+'</p>'+
     '<dl class="print-fields">'+doc.fields.map(([label,value])=>'<div><dt>'+escape(label)+'</dt><dd>'+
-      escape(value)+'</dd></div>').join('')+'</dl>'+items+
+      escape(value)+'</dd></div>').join('')+'</dl>'+
+    (doc.acknowledgment?'<p class="print-note">'+escape(doc.acknowledgment)+'</p>':'')+items+
     '<p><strong>Tổng số thiết bị</strong> '+number(doc.items.length)+'</p>'+
-    '<p class="print-note"><strong>Ghi chú</strong> '+escape(doc.note)+'</p>'+
-    '<div class="signatures">'+doc.signatures.map(label=>'<p>'+escape(label)+
-      '<br><small>Ký và ghi rõ họ tên</small></p>').join('')+'</div>'
+    signatures('Handover of IT Assets',!doc.isReturn)+
+    '<p class="print-note"><strong>Notes / Ghi chú</strong> '+escape(doc.note||'—')+'</p>'+
+    signatures('Return of IT Assets',doc.isReturn)
   window.print()
 }
 
@@ -1123,7 +1173,8 @@ function profile() {
     cancel()+submitButton('Đổi mật khẩu'),async values=>{
       if (values.newPassword!==values.confirm) throw new Error('Mật khẩu xác nhận không khớp.')
       await api('password',values)
-      returnToLogin('Đã đổi mật khẩu. Vui lòng đăng nhập lại.')
+      returnToLogin()
+      notice('Đã đổi mật khẩu. Vui lòng đăng nhập lại.','success')
     })
 }
 
@@ -1212,6 +1263,7 @@ async function handleAction(action,value,element) {
   if (action==='logout') {
     await api('logout',{})
     returnToLogin()
+    notice('Đã đăng xuất.','success')
   }
   if (action==='status-filter' || action==='dept-filter') {
     resetFilters()
@@ -1233,11 +1285,16 @@ async function handleAction(action,value,element) {
   if (action==='person-detail') personDetail(value)
   if (action==='slip-detail') slipDetail(value)
   if (action==='print-slip') printSlip(value)
-  if (action==='word-slip') {
+  if (action==='word-slip' || action==='excel-slip') {
     const slip = get('slips',value)
     if (slip) {
       element.disabled = true
-      try { await downloadSlipWord(slipDocument(slip)) }
+      try {
+        const doc = slipDocument(slip)
+        if (action==='excel-slip') await downloadSlipExcel(doc,space)
+        else await downloadSlipWord(doc)
+        dialogSuccess(action==='excel-slip'?'Đã tạo file Excel.':'Đã tạo file Word.')
+      }
       finally { element.disabled = false }
     }
   }
@@ -1251,6 +1308,7 @@ async function handleAction(action,value,element) {
   if (action==='delete-department') deleteDepartment(value)
   if (action==='new-person') personForm('',value)
   if (action==='edit-person') personForm(value)
+  if (action==='delete-person') deletePerson(value)
   if (action==='new-slip') handoverForm()
   if (action==='issue-device' || action==='return-device') handoverForm({kind:action==='issue-device'?'issue':'return',assetId:value})
   if (action==='issue-person') handoverForm({kind:'issue',personId:value})
@@ -1321,8 +1379,7 @@ document.addEventListener('submit',async event=>{
     } else if (formSubmit) await formSubmit(values,event.submitter)
   } catch (error) {
     if (errorBox.isConnected) {
-      errorBox.textContent = error.message
-      errorBox.hidden = false
+      showFeedback(errorBox,error.message)
     } else notice(error.message,'error')
   } finally {
     delete form.dataset.saving

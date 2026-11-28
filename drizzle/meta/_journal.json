@@ -36,6 +36,13 @@
       "when": 1795622400000,
       "tag": "0004_employee_code",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795881600000,
+      "tag": "0005_slip_form_and_staff_delete",
+      "breakpoints": true
     }
   ]
 }

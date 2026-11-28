@@ -3,7 +3,7 @@ const workspacePaths = new Set(['/app','/app/'])
 const api = new Map([
   ['/api/me','GET'], ['/api/state','GET'],
   ['/api/login','POST'], ['/api/logout','POST'], ['/api/password','POST'],
-  ['/api/people','POST'], ['/api/devices','POST'], ['/api/slips','POST'],
+  ['/api/people','POST'], ['/api/devices','POST'], ['/api/slips','POST'], ['/api/slip-template','GET'],
   ['/api/delete-device','POST'], ['/api/accounts','GET POST'],
   ['/api/departments','POST'], ['/api/warehouse','GET'], ['/api/counts','GET POST'], ['/api/audit','GET'],
 ])
@@ -68,8 +68,10 @@ export default {
       return new Response(null,{status:303,headers:{Location:'/','Cache-Control':'no-store',Vary:'Cookie'}})
     }
     const type = response.headers.get('Content-Type') || ''
+    const expected = path==='/api/slip-template' && response.ok
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/json'
     if ((response.status >= 300 && response.status < 400) ||
-        (api.has(path) && !type.startsWith('application/json'))) {
+        (api.has(path) && !type.startsWith(expected))) {
       return problem(502,'Không thể kết nối với Draexl IT.')
     }
 
